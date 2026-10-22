@@ -27,6 +27,12 @@ class Chunk:
             return f"{self.symbol} ({self.path})"
         return f"{self.path}:{self.start_line}-{self.end_line}"
 
+    def embed_text(self) -> str:
+        """Contextual enrichment: the text actually embedded/searched carries
+        its path + symbol header, so 'where is X defined' queries match the
+        chunk that defines X, not just chunks that mention it."""
+        return f"{self.path} :: {self.symbol}\n{self.text}"
+
     def to_payload(self) -> dict:
         return {
             "repo": self.repo, "path": self.path, "kind": self.kind,

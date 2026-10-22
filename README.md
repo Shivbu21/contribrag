@@ -53,30 +53,61 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 | Mode | Needs | Behaviour |
 |---|---|---|
 | Extractive (default) | nothing | Answers composed from retrieved chunks with citations. Fully offline. |
-| LLM | `CONTRIBRAG_LLM_BASE_URL` (any OpenAI-compatible endpoint, e.g. Ollama) | Generated prose answers, still citation-verified. |
-| Neural embeddings | `pip install fastembed` | bge-small embeddings replace the built-in hashing fallback. |
+| LLM | `CONTRIBRAG_LLM_BASE_URL` (any OpenAI-compatible endpoint, e.g. Ollama) | Generated prose answers, still citation-verified; HyDE expansion on. |
+| Embeddings | `fastembed` installed (default in requirements) | bge-small neural embeddings + cross-encoder rerank; without it, hashing embeddings + lexical rerank keep everything working offline. |
 
 ## Eval
 
 ```bash
-.venv/bin/python -m contribrag.eval eval/golden_sample.json
-# → hit@1, hit@5, citation_validity per golden set (fixture repo included)
+.venv/bin/python -m contribrag.eval eval/golden_sample.json [--embedder fastembed] [--no-rerank]
 ```
 
-Current fixture numbers (offline hashing embedder): **hit@1 0.80, hit@5 1.00,
-citation validity 1.00** over 5 golden questions.
+Ablation (hit@1 / hit@5, citation validity 1.00 in every configuration):
+
+| Config | Fixture (5 q) | pallets/click (7 q, 2,846 chunks) |
+|---|---|---|
+| Hashing embeddings, no rerank | 0.80 / 1.00 | 0.57 / 0.57 |
+| Hashing + pure cross-encoder rerank | 1.00 / 1.00 | **0.29** / 1.00 |
+| Hashing + **blended** rerank (shipped) | 1.00 / 1.00 | **0.71 / 1.00** |
+| Neural (bge-small) + blended rerank | 1.00 / 1.00 | 0.57 / 1.00 |
+
+The middle row is the interesting one: a web-trained cross-encoder, used as
+the *only* ordering, promotes chunks that *discuss* a symbol over the chunk
+that *defines* it. ContribRAG therefore **blends** the rerank score with the
+fusion score (which carries a symbol/path boost) instead of replacing it.
+Second lesson, same table: on definition-heavy questions the lexical side of
+the hybrid beats neural embeddings at hit@1 — which is exactly why the
+shipped pipeline fuses dense + BM25 + symbol signals instead of betting on
+one model.
 
 ## Architecture
 
 ```
 GitHub URL ─► ingest (git clone / local copy, file caps are reported, not silent)
            ─► chunking (tree-sitter AST for .py/.js/.ts, heading chunks for docs,
-                        issues/PRs as chunks)
-           ─► index (Qdrant local mode + embeddings)
+                        issues + merged PRs as chunks)
+           ─► contextual enrichment (path :: symbol header embedded with each chunk)
+           ─► index (Qdrant local mode; re-runs are incremental — stale chunks pruned)
            ─► hybrid retrieval (dense + BM25, reciprocal-rank fusion, symbol boost)
-           ─► LangGraph agent ─► ask | setup | match-issues | plan
+           ─► blended reranking (cross-encoder score ⋈ fusion score)
+           ─► LangGraph agent ─► ask | setup | architecture | match-issues | plan
            ─► citation verifier (retry once → extractive fallback)
 ```
+
+**v0.2 additions**
+
+- **Neural embeddings** (fastembed bge-small) with the hashing embedder as an
+  offline fallback; **cross-encoder reranking, blended** (see Eval).
+- **HyDE query expansion** when an LLM endpoint is configured: a hypothetical
+  answer passage is embedded alongside the question for retrieval.
+- **Architecture route** — "explain the architecture" returns a structural map
+  built from the index itself (modules, entry points, import edges).
+- **PR memory** — merged PRs are indexed with their files-changed lists, so
+  "how was X fixed before?" has something real to answer from.
+- **MCP server** — `python -m contribrag.mcp_server` exposes `ask_repo`,
+  `match_issues` and `repo_stats` to any MCP client over stdio.
+- **Incremental re-index** — unchanged chunks keep their ids; chunks from
+  deleted/renamed files are pruned and the count reported.
 
 ## Honest limits (v1)
 
@@ -90,7 +121,7 @@ GitHub URL ─► ingest (git clone / local copy, file caps are reported, not si
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests/ -q   # 5 tests: chunking, citations, matcher, e2e
+.venv/bin/python -m pytest tests/ -q   # 10 tests: chunking, citations, matcher, rerank, prune, archmap, MCP, e2e
 ```
 
 ## License

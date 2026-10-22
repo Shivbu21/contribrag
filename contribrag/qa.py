@@ -32,9 +32,24 @@ def verify_citations(answer: str, chunks: list[Chunk]) -> dict:
             "ok": cited == valid and len(cited) > 0}
 
 
+def _hyde_variant(question: str) -> str | None:
+    """HyDE: a hypothetical answer passage, embedded alongside the question
+    so retrieval matches answer-shaped text. Only when an LLM is configured."""
+    return chat([
+        {"role": "system", "content": "Write a short hypothetical passage that "
+         "would answer the question if it appeared in the repo's code or docs. "
+         "Invent plausible function names and files; it is only a search probe."},
+        {"role": "user", "content": question},
+    ], temperature=0.3)
+
+
 def answer_question(retriever: Retriever, question: str, repo: str | None = None,
                     k: int = 8) -> dict:
-    hits = retriever.search(question, repo=repo, k=k)
+    queries = [question]
+    hyde = _hyde_variant(question)
+    if hyde:
+        queries.append(hyde)
+    hits = retriever.search_multi(queries, repo=repo, k=k)
     chunks = [c for c, _ in hits]
     if not chunks:
         return {"answer": "Not in the repo: nothing is indexed yet for that scope.",

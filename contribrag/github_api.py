@@ -58,6 +58,38 @@ def fetch_prs(source: str, limit: int = 50) -> list[dict]:
              "merged": bool(p.get("merged_at"))} for p in r.json()]
 
 
+def fetch_pr_chunks(source: str, limit: int = 20):
+    """Merged PRs as chunks: title + body + files changed — lets ask answer
+    'how was X fixed before?' from real history."""
+    from .models import Chunk
+    parsed = parse_github_url(source)
+    if not parsed:
+        return []
+    owner, name = parsed
+    chunks = []
+    for pr in fetch_prs(source, limit=50):
+        if not pr["merged"]:
+            continue
+        if len(chunks) >= limit:
+            break
+        n = pr["number"]
+        try:
+            fr = requests.get(f"{API}/repos/{owner}/{name}/pulls/{n}/files",
+                              params={"per_page": 100}, headers=_headers(), timeout=30)
+            files = [f["filename"] for f in fr.json()] if fr.status_code == 200 else []
+            dr = requests.get(f"{API}/repos/{owner}/{name}/pulls/{n}",
+                              headers=_headers(), timeout=30)
+            body = (dr.json().get("body") or "")[:2000] if dr.status_code == 200 else ""
+        except Exception:
+            files, body = [], ""
+        text = (f"PR #{n}: {pr['title']}\n{body}\n\nFiles changed: "
+                f"{', '.join(files[:40])}")
+        chunks.append(Chunk(repo="", path=f"pr/#{n}", kind="pr",
+                            symbol=f"PR #{n}: {pr['title']}", start_line=1,
+                            end_line=max(1, text.count("\n") + 1), text=text))
+    return chunks
+
+
 # --- Contribute mode -------------------------------------------------------
 
 def rank_issues(issues: list[Issue], embedder, skills: str,

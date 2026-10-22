@@ -13,9 +13,9 @@ fastapi>=0.111
 uvicorn>=0.30
 streamlit>=1.37
 
-# Optional: real neural embeddings (heavier). Without it, a deterministic
-# hashing embedder is used so the whole pipeline still runs offline.
-# fastembed>=0.3
+# Embeddings + reranking (local ONNX). If unavailable, deterministic
+# hashing embeddings + a lexical reranker keep the pipeline fully offline.
+fastembed>=0.3
 
 # Dev / eval
 pytest>=8.2

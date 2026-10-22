@@ -1,4 +1,6 @@
-"""Indexing pipeline: obtain repo → chunk files (+ issues) → embed → store."""
+"""Indexing pipeline: obtain repo → chunk files (+ issues + PRs) → embed → store.
+Re-running on an existing repo is incremental: unchanged chunks keep their
+ids, and chunks from deleted/renamed files are pruned."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,18 +25,24 @@ def index_repo(source: str, with_issues: bool = True, store: Store | None = None
     chunks: list[Chunk] = []
     for f in files:
         chunks.extend(chunk_file(label, repo_path, f))
-    issue_count = 0
+    issue_count = pr_count = 0
     if with_issues:
-        issues = github_api.fetch_issues(source)
-        for iss in issues:
+        for iss in github_api.fetch_issues(source):
             chunks.append(iss.to_chunk(label))
             issue_count += 1
+        for prc in github_api.fetch_pr_chunks(source):
+            prc.repo = label
+            chunks.append(prc)
+            pr_count += 1
+    pruned = 0
     if chunks:
         store.ensure(len(embedder.embed(["dim probe"])[0]))
         batch = 128
         for i in range(0, len(chunks), batch):
             part = chunks[i:i + batch]
-            store.upsert(part, embedder.embed([c.text for c in part]))
+            # Embed the context-enriched text; store the original payload.
+            store.upsert(part, embedder.embed([c.embed_text() for c in part]))
+        pruned = store.prune(label, {c.id for c in chunks})
     return {"repo": label, "files": len(files), "chunks": len(chunks),
-            "issues": issue_count, "embedder": getattr(embedder, "name", "?"),
-            "stats": stats}
+            "issues": issue_count, "prs": pr_count, "pruned": pruned,
+            "embedder": getattr(embedder, "name", "?"), "stats": stats}

@@ -16,6 +16,7 @@ class Settings:
     llm_base_url: str | None = os.environ.get("CONTRIBRAG_LLM_BASE_URL")  # e.g. http://localhost:11434/v1
     llm_api_key: str = os.environ.get("CONTRIBRAG_LLM_API_KEY", "not-needed")
     llm_model: str = os.environ.get("CONTRIBRAG_LLM_MODEL", "qwen2.5:7b")
+    rerank_model: str = os.environ.get("CONTRIBRAG_RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2")
     # GitHub
     github_token: str | None = os.environ.get("GITHUB_TOKEN")
     # Ingest limits (v1 honesty: huge monorepos are capped, and we say so)

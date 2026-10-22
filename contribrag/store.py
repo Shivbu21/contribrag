@@ -58,3 +58,16 @@ class Store:
 
     def count(self, repo: str | None = None) -> int:
         return len(self.all_chunks(repo))
+
+    def prune(self, repo: str, keep_chunk_ids: set[str]) -> int:
+        """Delete this repo's points whose chunk id is not in keep_chunk_ids.
+        Point ids are uuid5(chunk_id), so stale points are computable."""
+        from qdrant_client.models import PointIdsList
+        stale = []
+        for ch in self.all_chunks(repo):
+            if ch.id not in keep_chunk_ids:
+                stale.append(uuid.uuid5(uuid.NAMESPACE_URL, ch.id).hex)
+        for i in range(0, len(stale), 256):
+            self.client.delete(COLLECTION,
+                               points_selector=PointIdsList(points=stale[i:i + 256]))
+        return len(stale)
